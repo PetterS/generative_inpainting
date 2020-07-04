@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 import cv2
 import numpy as np
@@ -11,23 +12,30 @@ from inpaint_model import InpaintCAModel
 parser = argparse.ArgumentParser()
 parser.add_argument('--image', default='', type=str,
                     help='The filename of image to be completed.')
-parser.add_argument('--mask', default='', type=str,
-                    help='The filename of mask, value 255 indicates mask.')
-parser.add_argument('--output', default='output.png', type=str,
-                    help='Where to write output.')
 parser.add_argument('--checkpoint_dir', default='', type=str,
                     help='The directory of tensorflow checkpoint.')
 
+def print_info(image, mask):
+    print("Image", image.shape, image.dtype)
+    print("Mask", mask.shape, mask.dtype, set(mask.flatten()))
+    print("")
 
 if __name__ == "__main__":
     FLAGS = ng.Config('inpaint.yml')
     # ng.get_gpus(1)
     args, unknown = parser.parse_known_args()
 
-    model = InpaintCAModel()
-    image = cv2.imread(args.image)
-    mask = cv2.imread(args.mask)
-    # mask = cv2.resize(mask, (0,0), fx=0.5, fy=0.5)
+    image = cv2.imread(args.image, cv2.IMREAD_UNCHANGED)
+    alpha = image[:, :, 3].copy()
+    image = image[:, :, 0:3].copy()
+
+    bool_mask = alpha == 0
+    mask = np.zeros(image.shape, dtype=np.uint8)
+    mask[bool_mask, 0] = 255
+    mask[bool_mask, 1] = 255
+    mask[bool_mask, 2] = 255
+
+    print_info(image, mask)
 
     assert image.shape == mask.shape
 
@@ -35,11 +43,16 @@ if __name__ == "__main__":
     grid = 8
     image = image[:h//grid*grid, :w//grid*grid, :]
     mask = mask[:h//grid*grid, :w//grid*grid, :]
-    print('Shape of image: {}'.format(image.shape))
+    
+    print_info(image, mask)
 
     image = np.expand_dims(image, 0)
     mask = np.expand_dims(mask, 0)
     input_image = np.concatenate([image, mask], axis=2)
+
+    print_info(image, mask)
+
+    model = InpaintCAModel()
 
     sess_config = tf.ConfigProto()
     sess_config.gpu_options.allow_growth = True
@@ -60,4 +73,4 @@ if __name__ == "__main__":
         sess.run(assign_ops)
         print('Model loaded.')
         result = sess.run(output)
-        cv2.imwrite(args.output, result[0][:, :, ::-1])
+        cv2.imwrite(args.image + "_output.png", result[0][:, :, ::-1])
